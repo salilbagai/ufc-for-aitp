@@ -1,16 +1,19 @@
 import streamlit as st
 from markitdown import MarkItDown
 import os
+import tempfile
 
-# Page styling
-st.set_page_config(page_title="MarkItDown Converter", page_icon="🚀")
+st.set_page_config(page_title="Pro Doc Converter", page_icon="📝")
+
+def get_file_size(size_in_bytes):
+    """Converts bytes to a human-readable string (MB)."""
+    return round(size_in_bytes / (1024 * 1024), 2)
 
 def main():
-    st.title("📄 Document to Markdown Converter")
-    st.markdown("Convert Office docs, PDFs, and HTML into clean Markdown instantly.")
+    st.title("🚀 Professional Document Converter")
+    st.markdown("Upload files to instantly convert them to clean Markdown and compare sizes.")
 
-    # [Requirement 3] Initialize engine with custom web request settings
-    # We define a user-agent and a 5-second timeout for stable web fetching
+    # Initialize Engine with timeout settings
     md_engine = MarkItDown(
         requests_kwargs={
             "headers": {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
@@ -18,55 +21,67 @@ def main():
         }
     )
 
-    # [Requirement 2] Drag and drop area
     uploaded_files = st.file_uploader(
-        "Upload files (.docx, .xlsx, .pptx, .pdf, .html)", 
+        "Drop files here", 
         type=['docx', 'xlsx', 'pptx', 'pdf', 'html'], 
         accept_multiple_files=True
     )
 
     if uploaded_files:
         for uploaded_file in uploaded_files:
-            # [Requirement 4] Use OS to manage file naming
-            original_filename = uploaded_file.name
-            base_name = os.path.splitext(original_filename)[0]
-            
+            original_name = uploaded_file.name
+            base_name = os.path.splitext(original_name)[0]
+            original_size_bytes = uploaded_file.size
+
             try:
-                # [Requirement 1] Core Engine Conversion
-                result = md_engine.convert(uploaded_file)
+                # 1. Process File via Temporary Path
+                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(original_name)[1]) as tmp_file:
+                    tmp_file.write(uploaded_file.getvalue())
+                    tmp_path = tmp_file.name
+
+                result = md_engine.convert(tmp_path)
                 content = result.text_content
+                os.remove(tmp_path) # Cleanup
+
+                # 2. Size Calculations
+                converted_size_bytes = len(content.encode('utf-8'))
+                orig_mb = get_file_size(original_size_bytes)
+                conv_mb = get_file_size(converted_size_bytes)
                 
-                # [Requirement 2] Instant Preview
-                with st.expander(f"✅ Processed: {original_filename}", expanded=True):
-                    st.text_area(
-                        label="Markdown Preview",
-                        value=content,
-                        height=250,
-                        key=f"area_{original_filename}"
-                    )
+                # Avoid division by zero
+                if original_size_bytes > 0:
+                    reduction = ((original_size_bytes - converted_size_bytes) / original_size_bytes) * 100
+                else:
+                    reduction = 0
+
+                # 3. User Interface with Tabs
+                with st.expander(f"✅ Finished: {original_name}", expanded=True):
+                    tab1, tab2 = st.tabs(["📄 Preview & Download", "📊 File Size Comparison"])
                     
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.download_button(
-                            label="Download .md",
-                            data=content,
-                            file_name=f"{base_name}_converted.md",
-                            mime="text/markdown",
-                            key=f"md_{original_filename}"
-                        )
-                    with col2:
-                        st.download_button(
-                            label="Download .txt",
-                            data=content,
-                            file_name=f"{base_name}_converted.txt",
-                            mime="text/plain",
-                            key=f"txt_{original_filename}"
-                        )
+                    with tab1:
+                        st.text_area("Content Preview", value=content, height=250, key=f"p_{original_name}")
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            st.download_button("📥 Markdown (.md)", content, f"{base_name}_converted.md", key=f"m_{original_name}")
+                        with c2:
+                            st.download_button("📥 Text (.txt)", content, f"{base_name}_converted.txt", key=f"t_{original_name}")
+                    
+                    with tab2:
+                        # Display Comparison Table
+                        data = {
+                            "Version": ["Original File", "Converted Text"],
+                            "Size (MB)": [f"{orig_mb} MB", f"{conv_mb} MB"]
+                        }
+                        st.table(data)
+                        
+                        # Highlight the efficiency
+                        if reduction > 0:
+                            st.success(f"✨ **Text version is {reduction:.1f}% smaller** than the original file.")
+                        else:
+                            st.info("The converted file is similar in size or larger than the original.")
 
             except Exception as e:
-                # [Requirement 3] Resilience / Error Handling
-                st.error(f"⚠️ Could not read {original_filename}. Please check the format.")
-                # Optional: st.caption(f"Error details: {e}")
+                st.error(f"⚠️ Could not read {original_name}. Please check the format.")
 
 if __name__ == "__main__":
     main()
